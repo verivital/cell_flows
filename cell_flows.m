@@ -10,8 +10,9 @@ OPT_TESSELATION_PARALLELOGRAM = 6; % parallelogram works, but vectors are differ
 OPT_TESSELATION_HEXAGON = 7;
 OPT_TESSELATION_EQTRI_LINE = 8; % line of equilateral triangles
 OPT_TESSELATION_RTRI_LINE = 9; % line of right triangles
+OPT_TESSELATION_HEXAGON_DIAMOND = 10;
 
-opt_single = 13; % 0 = batch mode, run all simulations, else value is the number of a simulation below
+opt_single = 21; % 0 = batch mode, run all simulations, else value is the number of a simulation below
 opt_run = 1; % 0 = batch mode, run all simulations, else value is the number of a run of a simulation below
 
 %MAX_ROUNDS = N + 1;    % needs to be at least N (for routing to have necessarily stabilized), change as necessary
@@ -85,7 +86,7 @@ for tmp = start + 1 : 16
 end
 
 simulations(4).environment = OPT_TESSELATION_EQTRI_LINE;
-simulations(4).maxRounds = 2500;
+simulations(4).maxRounds = 500;
 start = 0;
 for tmp = start + 1 : 16
     simulations(4).run(tmp - start).sources = [1];
@@ -93,7 +94,7 @@ for tmp = start + 1 : 16
 end
 
 simulations(5).environment = OPT_TESSELATION_RTRI_LINE;
-simulations(5).maxRounds = 2500;
+simulations(5).maxRounds = 500;
 start = 0;
 for tmp = start + 1 : 16
     simulations(5).run(tmp - start).sources = [1];
@@ -209,6 +210,25 @@ simulations(19).run(1).targets = [17 6 13 18 14 15]; % lockcolors example
 simulations(19).run(1).failed = [];
 simulations(19).run(1).faildynamic = [];
 
+simulations(20).environment = OPT_TESSELATION_TRI;
+simulations(20).maxRounds = 750;
+simulations(20).run(1).sources = [3 11 50 40 26]; % square left-right throughput, 2 overlap (has turns)
+simulations(20).run(1).targets = [23 19 25 30 41]; 
+simulations(20).run(1).failed = [14 9 7 39 38 36 35];
+simulations(20).run(1).faildynamic = [];
+
+simulations(20).run(2).sources = [3 11 50 40 26]; % square left-right throughput, 2 overlap (has turns)
+simulations(20).run(2).targets = [23 19 25 30 41]; 
+simulations(20).run(2).failed = [];
+simulations(20).run(2).faildynamic = [14 9 7 39 38 36 35];
+
+
+simulations(21).environment = OPT_TESSELATION_SQUARE;
+simulations(21).maxRounds = 500;
+simulations(21).run(1).sources = [4 20 22 6]; % square corners
+simulations(21).run(1).targets = [25 21 1 5];
+simulations(21).run(1).failed = [7 8 9 12 13 14 17 18 19];
+
 
 %targets = 10;  % hexagon
 %sources = 16; % hexagon
@@ -270,16 +290,23 @@ for iSim = min_sim : max_sim
         placedColors = [];
         lockedColors = [];
 
-epsPlot = 0.25;
-epsIllegal = 0.0001;
+        L = 0.1;
+        %L = 0.05;       % entity radius; for throughput
+        
+        if opt_tesselation_type == OPT_TESSELATION_TRI || opt_tesselation_type == OPT_TESSELATION_EQTRI_LINE || opt_tesselation_type == OPT_TESSELATION_RTRI_LINE
+            epsPlot = 0.01;
+            L = L / 2;
+        else
+            epsPlot = 0.25;
+        end
+        epsIllegal = 0.0001;
+        
+        rs = L / 10;    % safety radius
+        d = L + rs; 
+        m = 2;          % number of dimension (use this variable when necessary to refer to the dimensions)
+        F = 0;          % number of cells to fail
+        safeDistance = 3 * L + rs;
 
-L = 0.1;
-%L = 0.05;       % entity radius; for throughput
-rs = L / 10;    % safety radius
-d = L + rs; 
-m = 2;          % number of dimension (use this variable when necessary to refer to the dimensions)
-F = 0;          % number of cells to fail
-safeDistance = 3 * L + rs;
 
 NT = 1; % number of targets
 NS = NT; % number of sources
@@ -301,7 +328,7 @@ opt_display_progress = 100;  % number of rounds to display a text update on prog
 opt_decimal_tolerance = -4; % decimal tolerance (10^opt_decimal_tolerance)
 opt_badCell = 1;
 opt_singleEntity = 0;
-opt_video = 0; % record video
+opt_video = 1; % record video
 
 if opt_video
     writerObj = VideoWriter('factory.avi');
@@ -438,6 +465,52 @@ else
                 Cell(i).num_sides = Cell(ci).num_sides;
                 Cell(i).ptype = Cell(ci).ptype;
             end
+        % TODO:
+        case OPT_TESSELATION_RTRI_LINE
+            primitive_cells = 1;
+            copies = max(targets);
+            N = copies * primitive_cells;
+            diam = 2*N; % line graph, worst case
+
+            baseX = 0;
+            baseY = 0;
+            side = 1;
+            Cell(1).vertices = [baseX, baseY; baseX + side/2, baseY; baseX, baseY + side/2];
+            Cell(1).num_sides = 3;
+            Cell(1).ptype = OPT_TESSELATION_TRI;
+
+            c = 1;
+            numDir = 1;
+            cx = 0;
+            for i = primitive_cells + 1 : N
+                ci = mod(i-1,primitive_cells)+1;
+                
+                %if mod(i,2) == 0
+                %    cv0 = [0, 0]; % x only
+                %else
+                    cv0 = [side/2, 0]; % x only
+                %end
+                
+                Cell(i).vertices = Cell(ci).vertices;
+                
+                % flip
+                if mod(i,2) == 0
+                    theta = 45;
+                    Arot = [cosd(theta) -sind(theta); sind(theta) cosd(theta)];
+                    Cell(i).vertices(1,:) = Arot*Cell(i).vertices(1,:)';
+                    Cell(i).vertices(2,:) = Arot*Cell(i).vertices(2,:)';
+                    Cell(i).vertices(3,:) = Arot*Cell(i).vertices(3,:)';
+                    %Cell(i).vertices(1,2) = 0.5;
+                    %Cell(i).vertices(2,2) = 0.5;
+                    %Cell(i).vertices(3,2) = 0;
+                end
+                
+                Cell(i).vertices = Cell(i).vertices + ones(Cell(ci).num_sides,1)*(i-1)*cv0;
+                
+                Cell(i).num_sides = Cell(ci).num_sides;
+                Cell(i).ptype = Cell(ci).ptype;
+            end
+        case OPT_TESSELATION_RECTANGULAR
         case OPT_TESSELATION_SQUARE
             % generate uniform grid
             N = ((num)^2); % num is the number of squares between low and high; N is number of total cells
@@ -484,7 +557,6 @@ else
                 Cell(i).num_sides = Cell(ci).num_sides;
                 Cell(i).ptype = Cell(ci).ptype;
             end
-        case OPT_TESSELATION_RECTANGULAR
         case OPT_TESSELATION_SNUB_SQUARE_TILING
             primitive_cells = 6; % primitive tile has 6 cells
             copies = 4;
